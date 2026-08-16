@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.types import Command
 
+from app.draft import drafter_status
 from app.graph import compiled
 from app.models import Decision, DecisionRequest, IngestRequest, Job, Proposal, utcnow
 from app.store import store
@@ -34,30 +35,47 @@ def ingest(body: IngestRequest):
         _config(job.id),
     )
     proposal = Proposal.model_validate(store.proposals[proposal_id])
-    status = "pending" if proposal.requires_hitl else "auto"
-    if not proposal.requires_hitl:
-        status = "sent" if result.get("execute_result", {}).get("status") == "sent" else "auto"
-        if result.get("execute_result", {}).get("status") == "sent":
-            status = "sent"
-    item = store.enqueue(proposal, job, "pending" if proposal.requires_hitl else "sent")
+    status = "pending" if proposal.requires_hitl else "sent"
+    if result.get("execute_result", {}).get("status") == "failed":
+        status = "failed"
+    item = store.enqueue(proposal, job, status)
     return {
         "job_id": job.id,
         "proposal_id": proposal.id,
         "requires_hitl": proposal.requires_hitl,
         "policy_hits": proposal.policy_hits,
         "subtotal_cents": proposal.subtotal_cents,
+        "customer_message": proposal.customer_message,
+        "drafter": proposal.drafter,
         "queue_item": item.model_dump(mode="json"),
         "interrupted": bool(result.get("__interrupt__")),
     }
 
 
 @app.get("/v1/queue")
-def queue(status: str | None = "pending"):
+def queue(status: str | None = None):
     items = [i.model_dump(mode="json") for i in store.queue.values()]
     if status:
         items = [i for i in items if i["status"] == status]
-    items.sort(key=lambda i: i["created_at"])
-    return {"items": items}
+    items.sort(key=lambda i: i["created_at"], reverse=True)
+    counts: dict[str, int] = {}
+    for item in store.queue.values():
+        counts[item.status] = counts.get(item.status, 0) + 1
+    return {"items": items, "counts": counts}
+
+
+@app.get("/v1/proposals/{proposal_id}")
+def get_proposal(proposal_id: str):
+    proposal = store.proposals.get(proposal_id)
+    if not proposal:
+        raise HTTPException(404, "proposal not found")
+    job = store.jobs.get(proposal.job_id)
+    item = store.queue.get(proposal_id)
+    return {
+        "job": job.model_dump(mode="json") if job else None,
+        "proposal": proposal.model_dump(mode="json"),
+        "queue": item.model_dump(mode="json") if item else None,
+    }
 
 
 @app.get("/v1/jobs/{job_id}")
@@ -88,6 +106,15 @@ def decide(proposal_id: str, body: DecisionRequest):
         raise HTTPException(400, "edit requires edited_items")
     if body.action == "reject" and not body.reason:
         raise HTTPException(400, "reject requires reason")
+
+    if body.action == "edit" and body.edited_items:
+        proposal = proposal.model_copy(
+            update={
+                "line_items": body.edited_items,
+                "subtotal_cents": int(sum(i.unit_cents * i.qty for i in body.edited_items)),
+            }
+        )
+        store.put_proposal(proposal)
 
     decision = Decision(
         id=str(uuid.uuid4()),
@@ -123,7 +150,7 @@ def audit(job_id: str):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "jobs": len(store.jobs)}
+    return {"ok": True, "jobs": len(store.jobs), "drafter": drafter_status()}
 
 
 def run() -> None:

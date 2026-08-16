@@ -1,6 +1,6 @@
-# QuoteGate web — operator console
+# QuoteGate web
 
-Next.js App Router. Queue, job detail, audit chain. Approvers live in Expo; this is overflow + receipts.
+Customer landing page plus the owner console.
 
 ```bash
 cd web
@@ -8,4 +8,7 @@ npm install
 NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 ```
 
-Routes: `/` queue · `/jobs/[id]` proposal + hash-chained audit.
+- `/` product landing
+- `/console` owner queue
+- `/console/new` ingest tech notes
+- `/console/jobs/[id]` approve / edit / reject + audit

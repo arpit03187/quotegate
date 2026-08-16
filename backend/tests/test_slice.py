@@ -46,6 +46,49 @@ def test_replacement_quote_gates_then_resumes():
         assert nxt["prev_hash"] == prev["hash"]
 
 
+def test_reject_does_not_send():
+    ingest = client.post(
+        "/v1/jobs",
+        json={
+            "customer_name": "Pat Ng",
+            "address": "2 Pine",
+            "notes": "replace the water heater",
+        },
+    )
+    pid = ingest.json()["proposal_id"]
+    decision = client.post(
+        f"/v1/proposals/{pid}/decision",
+        json={"action": "reject", "channel": "web", "reason": "wrong sku"},
+    )
+    assert decision.status_code == 200
+    assert decision.json()["status"] == "rejected"
+    assert decision.json()["execute_result"]["status"] == "rejected"
+    queue = client.get("/v1/queue").json()["items"]
+    match = next(i for i in queue if i["proposal_id"] == pid)
+    assert match["status"] == "rejected"
+
+
+def test_edit_sends_owner_price():
+    ingest = client.post(
+        "/v1/jobs",
+        json={
+            "customer_name": "Kim Ortiz",
+            "address": "8 Cedar",
+            "notes": "200A panel replacement",
+        },
+    )
+    pid = ingest.json()["proposal_id"]
+    detail = client.get(f"/v1/proposals/{pid}").json()
+    items = detail["proposal"]["line_items"]
+    items[0]["unit_cents"] = 350_000
+    decision = client.post(
+        f"/v1/proposals/{pid}/decision",
+        json={"action": "edit", "channel": "web", "edited_items": items},
+    )
+    assert decision.status_code == 200
+    assert decision.json()["execute_result"]["sent_cents"] == 350_000
+
+
 def test_book_diagnostic_autosends():
     ingest = client.post(
         "/v1/jobs",

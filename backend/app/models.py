@@ -43,6 +43,7 @@ class Proposal(BaseModel):
     confidence: float
     customer_message: str
     rationale: str
+    drafter: str = "rules"
     policy_hits: list[str] = Field(default_factory=list)
     requires_hitl: bool = True
     created_at: datetime = Field(default_factory=utcnow)
