@@ -1,0 +1,17 @@
+[project]
+name = "quotegate"
+version = "0.1.0"
+description = "QuoteGate HITL thin slice: ingest → proposal → mobile approve → execute → audit"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "langgraph>=0.2",
+]
+
+[project.optional-dependencies]
+dev = ["httpx", "pytest"]
+
+[project.scripts]
+quotegate = "app.main:run"
